@@ -9,22 +9,38 @@
 #include <WiFiClientSecure.h> 
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <TimeLib.h>
+#include <DHT.h>
 
+/* Definitions */ 
+#define DHTPIN D4 
+#define DHTTYPE DHT11
+const int sleepTimeS = 60;
 /* Set these to your desired credentials. */
-const char *ssid = "ENTER WIFI SSID";  //ENTER YOUR WIFI SETTINGS
-const char *password = "ENTER WIFI PASSWORD";
+const char *ssid = "XXXXX";  //ENTER YOUR WIFI SETTINGS
+const char *password = "XXXXX";
 
-//Link to read data from https://jsonplaceholder.typicode.com/comments?postId=7
 //Web/Server address to read/write from 
-//const char *host = "postman-echo.com";
-const char *host = "data.bitpool.com";
+const char *host = "api.bitpool.com";
 const int httpsPort = 443;  //HTTPS= 443 and HTTP = 80
 
 //SHA1 finger print of certificate use web browser to view and copy
-const char fingerprint[] PROGMEM = "ec 80 96 68 09 2a a3 af 57 bc b7 cb 86 56 5e b7 48 11 29 87";
+const char fingerprint[] PROGMEM = "9d 81 3e 65 bb c4 26 9c 1e d5 f2 1f 8b c4 47 cd 38 6f 19 ae";
+String streamKey = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
+
+//API Key E.G. 
+String authorizationToken = "Bitpool2 XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
+
+DHT dht(DHTPIN, DHTTYPE);
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "au.pool.ntp.org", -7200);
+String Link = "/public/v2/streams/" + streamKey + "/logs";
+
 
 //=======================================================================
-//                    Power on setup
+//                    setup
 //=======================================================================
 
 void setup() {
@@ -50,16 +66,25 @@ void setup() {
   Serial.println(ssid);
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());  //IP address assigned to your ESP
-}
+  timeClient.begin();
+  dht.begin(); 
+
+
 
 //=======================================================================
 //                    Main Program Loop
 //=======================================================================
-void loop() {
+
   WiFiClientSecure httpsClient;    //Declare object of class WiFiClient
 
   Serial.println(host);
+  timeClient.update();
+  Serial.println(timeClient.getEpochTime());
+  char dateTimeBuffer[24];
+  sprintf(dateTimeBuffer, "%4d-%02d-%02dT%02d:%02d:%02d.000Z", year(timeClient.getEpochTime()), month(timeClient.getEpochTime()), day(timeClient.getEpochTime()),hour(timeClient.getEpochTime()), minute(timeClient.getEpochTime()), second(timeClient.getEpochTime()));
+  Serial.println(dateTimeBuffer);
 
+  
   Serial.printf("Using fingerprint '%s'\n", fingerprint);
   httpsClient.setFingerprint(fingerprint);
   httpsClient.setTimeout(15000); // 15 Seconds
@@ -79,29 +104,20 @@ void loop() {
     Serial.println("Connected to web");
   }
   
-  String getData, Link;
-  
-  //POST Data
-  Link = "/Import/UploadCsv";
 
   Serial.print("requesting URL: ");
   Serial.println(host);
-  /*
-   POST /post HTTP/1.1
-   Host: postman-echo.com
-   Content-Type: application/x-www-form-urlencoded
-   Content-Length: 13
-  
-   say=Hi&to=Mom
-    
-   */
 
+  float t = dht.readTemperature();
+  String payloadData = "[{\"Ts\": \"" + String(dateTimeBuffer) + "\",\"Val\": " + String(t) + ",\"ValStr\": \"string\",\"Calculated\": true}]";
+  Serial.println(payloadData);
   httpsClient.print(String("POST ") + Link + " HTTP/1.1\r\n" +
                "Host: " + host + "\r\n" +
-               "Content-Type: application/x-www-form-urlencoded"+ "\r\n" +
-               "Content-Length: 13" + "\r\n\r\n" +
-               "say=Hi&to=Mom" + "\r\n" +
-               "Connection: close\r\n\r\n");
+               "Authorization: "+ authorizationToken + "\r\n" +
+               "Content-Type: application/json"+ "\r\n" +
+               "Content-Length: " + payloadData.length() + "\r\n" +
+               "Connection: close" +" \r\n\r\n" +
+               payloadData + "\r\n");
 
   Serial.println("request sent");
                   
@@ -122,7 +138,9 @@ void loop() {
   }
   Serial.println("==========");
   Serial.println("closing connection");
-    
-  delay(2000);  //POST Data at every 2 seconds
+  Serial.println("Back to sleep");
+  ESP.deepSleep(sleepTimeS * 1000000);
 }
+
+void loop() {}
 //=======================================================================
